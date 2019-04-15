@@ -119,7 +119,9 @@ start_code:
         //ldr r0,=open_led1
         //mov pc,r0
         //ldr pc, _open_led1   /* the function wil return to here*/  
-        bl _open_led1
+        mov r0,#5
+        mov r1,#0
+        bl _led_operation
         /*
 	bl	coloured_LED_init
 	bl	red_LED_on
@@ -515,7 +517,7 @@ cpu_init_crit:
 /************************************************************************/
 /*Name: led_operation                                                   */                                     
 /*Role: kekangwang                                                      */
-/*Paremeter: R0: [LED1~LED4]                                            */
+/*Paremeter: R0: [LED1~LED4] LED1:GPB5 LED2:GPB6 LED3:GPB7 LED4:GPB8    */
 /*           R1: [LED_ACTIVE/INACTIVE]                                  */
 /*Constraints: none                                                     */
 /*Behavior:  open/close led                                             */
@@ -524,38 +526,70 @@ cpu_init_crit:
 #define GPBDAT_REG 0x56000014
 #define GPBUP_REG  0x56000018
 
-#define LED1 0x01
-#define LED2 0x02
-#define LED3 0x03
-#define LED4 0x04
+#define LED1 5
+#define LED2 6
+#define LED3 7
+#define LED4 8
 
 #define LED_ACTIVE 0x00    /* low vol */
 #define LED_INACTIVE 0x01  /* high vol */
-
+/*******************************************/
+/*r0: reg addr                             */
+/*r1: reg value                            */
+/*r4: function parameter: ledx             */
+/*r5: function parameter: active/inactive  */
+/*r6: ledx *2                              */
+/*r7: con,up reg bit offset = 31-r6        */
+/*r8: data reg bit offset                  */
 _led_operation: .word led_operation
 led_operation:
-        ldr r1,=GPBCON_REG      /*get addr*/
-	ldr r0,[r1]             /*get reg's value*/
-        ldr r1,=0xF3FF          /*dummy order*/
-	and r0,r0,r1            /*clear GPB5[11:10] bits*/
-        ldr r1,=0x0400          /*dummy order*/
-	orr r0,r0,r1            /*GPB5:[11:10] = 01,output*/
-        ldr r1,=GPBCON_REG      /*get addr*/
-	str r0,[r1]
+        mov r4,r0               /*ledx*/
+        mov r5,r1               /*active/inactive*/
+        
+        /************* set control reg*************************/
+        /*read reg val*/
+        ldr r0,=GPBCON_REG      /*get addr*/
+	ldr r1,[r0]             /*get reg's value store in r1*/
+ 
+        /*clear reg bit*/
+	mov r6,r4,lsl #2        /*r6=r4*2,such as LED1=5, bit10*/
+        mov r7,#30
+        sub r7,r7,r6            /*reg bit offset*/
+        ldr r2,=0x3FFF          /*r2 = 0xfffc,bit0=0,bit1=0*/    
+	mov r2,r2,ror r7        /*r2 = r2<<r4,rotate left,such as 0xfffc rol 10 = 0xf3ff, clear GPB5[11:10] bits*/
+        and r1,r1,r2            /*clear GPB5[11:10] bits,store in r1*/           
+        
+        /*set reg bit*/
+        ldr r2,=0x4000 
+	mov r2,r2,ror r7                      
+	orr r1,r1,r2            /*GPB5:[11:10] = 01,output*/
+	str r1,[r0]             /*write con reg value*/
 	
-	ldr r1,=GPBDAT_REG      /*get addr*/
-	ldr r0,[r1]             /*get reg's value*/
-        ldr r1,=0xFFDF          /*dummy order*/
-	and r0,r0,r1            /*clear GPB5[5] bits,low vol is active*/
-        ldr r1,=GPBDAT_REG      /*get addr*/
-	str r0,[r1] 
+        /**************set data reg****************************/
+	ldr r0,=GPBDAT_REG      /*get addr*/
+	ldr r1,[r0]             /*get reg's value*/
+        ldr r2,=0x7FFF
+        mov r8,#31
+        sub r8,r8,r4           
+        mov r2,r2,ror r8
+        and r1,r1,r2            /*clear GPB5[5] bits,low vol is active*/
+                  
+        cmp r5,#LED_ACTIVE
+ 	beq write_DatReg
+        ldr r2,=0x8000
+        mov r2,r2,ror r8
+        orr r1,r1,r2             /*set reg val*/ 
+write_DatReg:       
+	str r1,[r0] 
 
-        ldr r1,=GPBUP_REG       /*get addr*/
-	ldr r0,[r1]             /*get reg's value*/
-        ldr r1,=0xFFDF          /*dummy order*/
-	and r0,r0,r1            /*clear GPB5[5] bits,no up register*/
-        ldr r1,=GPBUP_REG       /*get addr*/
-	str r0,[r1] 
+        /*************set up reg*******************************/
+        ldr r0,=GPBUP_REG       /*get addr*/
+	ldr r1,[r0]             /*get reg's value*/
+        ldr r2,=0x7FFF          /*dummy order*/
+        mov r2,r2,ror r8
+	and r1,r1,r2            /*clear GPB5[5] bits,no up register*/
+        
+	str r1,[r0]             /*set reg*/
         
         mov pc,lr               /* return */
         /*subs pc, lr, #4*/         /* return */
